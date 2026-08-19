@@ -87,7 +87,7 @@ Missing the required header returns `401`:
 ## MCP Endpoint
 
 - `POST /mcp` — MCP protocol (streamable HTTP transport)
-- `GET /health` — health check, returns `{"status": "ok", "service": "opsgenie-mcp", "transport": "http"}`
+- `GET /health` — health check, returns `{"status": "ok"}` (pure local liveness probe, does not call Opsgenie)
 
 ## Tool List
 
@@ -143,7 +143,7 @@ curl -s -X POST http://localhost:8080/mcp \
     "method": "tools/call",
     "params": {
       "name": "opsgenie_alert_list_alerts",
-      "arguments": {"limit": "5"}
+      "arguments": {"limit": 5}
     }
   }'
 ```

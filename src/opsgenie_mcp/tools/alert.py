@@ -1,24 +1,47 @@
-import json
 from collections.abc import Callable
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import Field
 
+from .._json import dump_json_capped
 from ..api_client import OpsgenieClient, OpsgenieError
 from ._common import NO_TOKEN
 
+# Opsgenie's own documented per-page maximum for these list endpoints is 100
+# (stricter than the SOP's 200 fallback ceiling), so we clamp to the
+# vendor's real limit rather than the SOP's default.
+_MAX_LIMIT = 100
+
+_IDENTIFIER_TYPE_DESC = (
+    "Type of the identifier: id, tiny, or alias. Default id. Alias cannot "
+    "be used to look up a closed alert."
+)
+
+
+def _clamp_limit(limit: int | None) -> int | None:
+    if limit is not None and limit > _MAX_LIMIT:
+        return _MAX_LIMIT
+    return limit
+
 
 def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) -> None:
-    @mcp.tool()
-    async def opsgenie_alert_acknowledge_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Acknowledge Alert.
-
-        API: POST /v2/alerts/:identifier/acknowledge
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_acknowledge_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(
+                description=(
+                    "Optional fields: user (display name of requester), source, "
+                    "note. All optional."
+                )
+            ),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Acknowledge an alert, marking it as being worked on."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -26,21 +49,20 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
     @mcp.tool()
-    async def opsgenie_alert_add_note_to_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Add Note to Alert.
-
-        API: POST /v2/alerts/:identifier/notes
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    async def opsgenie_alert_add_note_to_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(description="Fields: note (required text to add), user, source. Optional."),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Add a note to an alert. Each call appends a new note (not idempotent)."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -48,21 +70,26 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_add_responder_to_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Add Responder to Alert.
-
-        API: POST /v2/alerts/:identifier/responders
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `responder`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_add_responder_to_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(
+                description=(
+                    "Fields: responder (required — {id|name, type: user/team/"
+                    "escalation/schedule}), user, source, note. See Opsgenie docs "
+                    "for exact shape."
+                )
+            ),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Add a responder (user, team, escalation, or schedule) to an alert."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -70,21 +97,19 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_add_tags_to_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Add Tags to Alert.
-
-        API: POST /v2/alerts/:identifier/tags
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `tags`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_add_tags_to_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict, Field(description="Fields: tags (required list of strings), user, source, note.")
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Add one or more tags to an alert."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -92,21 +117,20 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_add_team_to_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Add Team to Alert.
-
-        API: POST /v2/alerts/:identifier/teams
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `team`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_add_team_to_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(description="Fields: team (required — {id} or {name}), user, source, note."),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Add a team as a responder to an alert."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -114,21 +138,22 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_assign_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Assign Alert.
-
-        API: POST /v2/alerts/:identifier/assign
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `owner`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_assign_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(
+                description="Fields: owner (required — {id|username} of the new assignee), user, source, note."
+            ),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Assign an alert to a specific user (its sole owner)."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -136,21 +161,17 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_close_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Close Alert.
-
-        API: POST /v2/alerts/:identifier/close
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_close_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[dict, Field(description="Optional fields: user, source, note.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Close an alert, ending its active lifecycle."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -158,62 +179,72 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_count_alerts(query: str | None = None, search_identifier: str | None = None, search_identifier_type: str | None = None) -> str:
-        """Count Alerts.
-
-        API: GET /v2/alerts/count
-
-        Args:
-            query: Optional. Search query to apply while filtering the alerts.
-            search_identifier: Optional. Identifier of the saved search query to apply while filtering the alerts.
-            search_identifier_type: Optional. Identifier type of the saved search query. Possible values id, name. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_count_alerts(
+        query: Annotated[
+            str | None, Field(description="Opsgenie search query to filter alerts.")
+        ] = None,
+        search_identifier: Annotated[
+            str | None, Field(description="ID or name of a saved search to apply instead.")
+        ] = None,
+        search_identifier_type: Annotated[
+            str | None, Field(description="Type of search_identifier: id or name. Default id.")
+        ] = None,
+    ) -> str:
+        """Count alerts matching a search query or saved search."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
-        params = {"query": query, "searchIdentifier": search_identifier, "searchIdentifierType": search_identifier_type}
+        params = {
+            "query": query,
+            "searchIdentifier": search_identifier,
+            "searchIdentifierType": search_identifier_type,
+        }
         try:
             result = await client.get("/v2/alerts/count", params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
     @mcp.tool()
-    async def opsgenie_alert_create_alert(body: dict) -> str:
-        """Create Alert.
-
-        API: POST /v2/alerts
-
-        Args:
-            body: Required. JSON request payload. Fields: `message`, `alias`, `description`, `responders`, `visibleTo`, `actions`, `tags`, `details`, `entity`, `source`, `priority`, `user`, `note`. See the Opsgenie API docs for exact types/constraints.
-        """
+    async def opsgenie_alert_create_alert(
+        body: Annotated[
+            dict,
+            Field(
+                description=(
+                    "Fields: message (required, max 130 chars), alias, description, "
+                    "responders, visibleTo, actions, tags, details, entity, source, "
+                    "priority (P1-P5), user, note. See Opsgenie docs for exact shape."
+                )
+            ),
+        ],
+    ) -> str:
+        """Create a new alert. Each call raises a distinct alert (not idempotent)."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
-        params = {}
         try:
-            result = await client.post("/v2/alerts", params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            result = await client.post("/v2/alerts", params={}, json_body=body)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_delete_alert(identifier: str, identifier_type: str | None = None, user: str | None = None, source: str | None = None) -> str:
-        """Delete Alert.
-
-        API: DELETE /v2/alerts/:identifier
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values are AlertID and tinyID.
-            user: Optional. Display name of the request owner. Max 100 characters.
-            source: Optional. Display name of the request source. Max 100 characters.
-        """
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    async def opsgenie_alert_delete_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+        user: Annotated[
+            str | None, Field(description="Display name of the requester. Max 100 chars.")
+        ] = None,
+        source: Annotated[
+            str | None, Field(description="Display name of the request source. Max 100 chars.")
+        ] = None,
+    ) -> str:
+        """Permanently delete an alert. Irreversible — only call with a confirmed ID."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -221,21 +252,25 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type, "user": user, "source": source}
         try:
             result = await client.delete(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
     @mcp.tool()
-    async def opsgenie_alert_escalate_alert_to_next(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Escalate Alert to Next.
-
-        API: POST /v2/alerts/:identifier/escalate
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `escalation`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    async def opsgenie_alert_escalate_alert_to_next(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(
+                description=(
+                    "Fields: escalation (required — {id} or {name} of the escalation "
+                    "to advance), user, source, note."
+                )
+            ),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Escalate an alert to the next level of its escalation policy."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -243,20 +278,16 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_get_alert(identifier: str, identifier_type: str | None = None) -> str:
-        """Get Alert.
-
-        API: GET /v2/alerts/:identifier
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values are id, tiny and alias. Default is id. Alias cannot be used to retrieve closed alerts.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_get_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Get full details of a single alert by its identifier."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -264,141 +295,199 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.get(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_get_request_status(request_id: str) -> str:
-        """Get Request Status.
-
-        API: GET /v2/alerts/requests/:requestId
-
-        Args:
-            request_id: Required. Universally unique identifier of the questioned request.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_get_request_status(
+        request_id: Annotated[
+            str, Field(description="Request UUID returned by an earlier async alert action.")
+        ],
+    ) -> str:
+        """Check the async processing status of a previously submitted alert request."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
         path = f"/v2/alerts/requests/{request_id}"
-        params = {}
         try:
-            result = await client.get(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            result = await client.get(path, params={})
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_list_alert_logs(identifier: str, identifier_type: str | None = None, offset: str | None = None, direction: str | None = None, limit: str | None = None, order: str | None = None) -> str:
-        """List Alert Logs.
-
-        API: GET /v2/alerts/:identifier/logs
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-            offset: Optional. Starting value of the offset property.
-            direction: Optional. Page direction to apply for the given offset. Possible values next, prev. Default next.
-            limit: Optional. Maximum number of items in the result. Default 20, max 100.
-            order: Optional. Sorting order of the result set. Possible values desc, asc. Default desc.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_list_alert_logs(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+        offset: Annotated[
+            str | None, Field(description="Pagination cursor: starting offset value.")
+        ] = None,
+        direction: Annotated[
+            str | None, Field(description="Page direction from offset: next or prev. Default next.")
+        ] = None,
+        limit: Annotated[
+            int | None,
+            Field(ge=1, le=_MAX_LIMIT, description="Max log entries to return. Default 20, max 100."),
+        ] = None,
+        order: Annotated[
+            str | None, Field(description="Sort order: desc or asc. Default desc.")
+        ] = None,
+    ) -> str:
+        """List an alert's audit log entries (status/ownership/field changes)."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
         path = f"/v2/alerts/{identifier}/logs"
-        params = {"identifierType": identifier_type, "offset": offset, "direction": direction, "limit": limit, "order": order}
+        params = {
+            "identifierType": identifier_type,
+            "offset": offset,
+            "direction": direction,
+            "limit": _clamp_limit(limit),
+            "order": order,
+        }
         try:
             result = await client.get(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_list_alert_notes(identifier: str, identifier_type: str | None = None, offset: str | None = None, direction: str | None = None, limit: str | None = None, order: str | None = None) -> str:
-        """List Alert Notes.
-
-        API: GET /v2/alerts/:identifier/notes
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-            offset: Optional. Starting value of the offset property.
-            direction: Optional. Page direction to apply for the given offset. Possible values next, prev. Default next.
-            limit: Optional. Maximum number of items in the result. Default 20, max 100.
-            order: Optional. Sorting order of the result set. Possible values desc, asc. Default desc.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_list_alert_notes(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+        offset: Annotated[
+            str | None, Field(description="Pagination cursor: starting offset value.")
+        ] = None,
+        direction: Annotated[
+            str | None, Field(description="Page direction from offset: next or prev. Default next.")
+        ] = None,
+        limit: Annotated[
+            int | None,
+            Field(ge=1, le=_MAX_LIMIT, description="Max notes to return. Default 20, max 100."),
+        ] = None,
+        order: Annotated[
+            str | None, Field(description="Sort order: desc or asc. Default desc.")
+        ] = None,
+    ) -> str:
+        """List the notes that have been added to an alert."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
         path = f"/v2/alerts/{identifier}/notes"
-        params = {"identifierType": identifier_type, "offset": offset, "direction": direction, "limit": limit, "order": order}
+        params = {
+            "identifierType": identifier_type,
+            "offset": offset,
+            "direction": direction,
+            "limit": _clamp_limit(limit),
+            "order": order,
+        }
         try:
             result = await client.get(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_list_alerts(query: str | None = None, search_identifier: str | None = None, search_identifier_type: str | None = None, offset: str | None = None, limit: str | None = None, sort: str | None = None, order: str | None = None) -> str:
-        """List Alerts.
-
-        API: GET /v2/alerts
-
-        Args:
-            query: Optional. Search query to apply while filtering the alerts.
-            search_identifier: Optional. Identifier of the saved search query to apply while filtering the alerts.
-            search_identifier_type: Optional. Identifier type of the saved search query. Possible values id, name. Default id.
-            offset: Optional. Start index of the result set (pagination). Default 0.
-            limit: Optional. Maximum number of items in the result. Default 20, max 100.
-            sort: Optional. Field name to sort by. Default createdAt. Possible values include updatedAt, tinyId, alias, message, status, acknowledged, isSeen, snoozed, snoozedUntil, count, lastOccurredAt, source, owner, integration.name, integration.type, report.ackTime, report.closeTime, report.acknowledgedBy, report.closedBy.
-            order: Optional. Sorting order of the result set. Possible values desc, asc. Default desc.
-        """
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    async def opsgenie_alert_list_alerts(
+        query: Annotated[
+            str | None, Field(description="Opsgenie search query to filter alerts.")
+        ] = None,
+        search_identifier: Annotated[
+            str | None, Field(description="ID or name of a saved search to apply instead.")
+        ] = None,
+        search_identifier_type: Annotated[
+            str | None, Field(description="Type of search_identifier: id or name. Default id.")
+        ] = None,
+        offset: Annotated[
+            str | None, Field(description="Pagination start index. Default 0.")
+        ] = None,
+        limit: Annotated[
+            int | None,
+            Field(ge=1, le=_MAX_LIMIT, description="Max alerts to return. Default 20, max 100."),
+        ] = None,
+        sort: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Field to sort by, e.g. createdAt (default), updatedAt, tinyId, "
+                    "message, status, priority, count, lastOccurredAt."
+                )
+            ),
+        ] = None,
+        order: Annotated[
+            str | None, Field(description="Sort order: desc or asc. Default desc.")
+        ] = None,
+    ) -> str:
+        """List alerts, optionally filtered by a search query or saved search."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
-        params = {"query": query, "searchIdentifier": search_identifier, "searchIdentifierType": search_identifier_type, "offset": offset, "limit": limit, "sort": sort, "order": order}
+        params = {
+            "query": query,
+            "searchIdentifier": search_identifier,
+            "searchIdentifierType": search_identifier_type,
+            "offset": offset,
+            "limit": _clamp_limit(limit),
+            "sort": sort,
+            "order": order,
+        }
         try:
             result = await client.get("/v2/alerts", params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_remove_tags_from_alert(identifier: str, tags: str, identifier_type: str | None = None, user: str | None = None, source: str | None = None, note: str | None = None) -> str:
-        """Remove Tags from Alert.
-
-        API: DELETE /v2/alerts/:identifier/tags
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            tags: Required. Comma separated list of tags to remove from the alert. Max 20 x 50 characters.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-            user: Optional. Display name of the request owner. Max 100 characters.
-            source: Optional. Display name of the request source. Max 100 characters.
-            note: Optional. Additional alert note to add. Max 25000 characters.
-        """
+    @mcp.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
+    async def opsgenie_alert_remove_tags_from_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        tags: Annotated[
+            str, Field(description="Comma-separated tags to remove. Max 20 tags x 50 chars.")
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+        user: Annotated[
+            str | None, Field(description="Display name of the requester. Max 100 chars.")
+        ] = None,
+        source: Annotated[
+            str | None, Field(description="Display name of the request source. Max 100 chars.")
+        ] = None,
+        note: Annotated[
+            str | None, Field(description="Additional note to add. Max 25000 chars.")
+        ] = None,
+    ) -> str:
+        """Remove one or more tags from an alert."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
         path = f"/v2/alerts/{identifier}/tags"
-        params = {"tags": tags, "identifierType": identifier_type, "user": user, "source": source, "note": note}
+        params = {
+            "tags": tags,
+            "identifierType": identifier_type,
+            "user": user,
+            "source": source,
+            "note": note,
+        }
         try:
             result = await client.delete(path, params=params)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_snooze_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Snooze Alert.
-
-        API: POST /v2/alerts/:identifier/snooze
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `endTime`, `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_snooze_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict,
+            Field(
+                description=(
+                    "Fields: endTime (required ISO-8601 timestamp to snooze until), "
+                    "user, source, note."
+                )
+            ),
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Snooze an alert so it stops notifying until a given time."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -406,21 +495,17 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_unacknowledge_alert(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Unacknowledge Alert.
-
-        API: POST /v2/alerts/:identifier/unacknowledge
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `user`, `source`, `note`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_unacknowledge_alert(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[dict, Field(description="Optional fields: user, source, note.")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Revert a previously acknowledged alert back to unacknowledged."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -428,21 +513,17 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_update_alert_description(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Update Alert Description.
-
-        API: POST /v2/alerts/:identifier/description
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `description`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_update_alert_description(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[dict, Field(description="Fields: description (required new text).")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Replace an alert's description text."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -450,21 +531,17 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_update_alert_message(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Update Alert Message.
-
-        API: POST /v2/alerts/:identifier/message
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `message`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_update_alert_message(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[dict, Field(description="Fields: message (required new text, max 130 chars).")],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Replace an alert's message (title) text."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -472,21 +549,19 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.post(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
+            return e.to_envelope()
 
-    @mcp.tool()
-    async def opsgenie_alert_update_alert_priority(identifier: str, body: dict, identifier_type: str | None = None) -> str:
-        """Update Alert Priority.
-
-        API: PUT /v2/alerts/:identifier/priority
-
-        Args:
-            identifier: Required. Identifier of the alert.
-            body: Required. JSON request payload. Fields: `priority`. See the Opsgenie API docs for exact types/constraints.
-            identifier_type: Optional. Type of the identifier provided in-line. Possible values id, tiny, alias. Default id.
-        """
+    @mcp.tool(annotations=ToolAnnotations(idempotentHint=True))
+    async def opsgenie_alert_update_alert_priority(
+        identifier: Annotated[str, Field(description="ID, tiny ID, or alias of the alert.")],
+        body: Annotated[
+            dict, Field(description="Fields: priority (required, one of P1-P5).")
+        ],
+        identifier_type: Annotated[str | None, Field(description=_IDENTIFIER_TYPE_DESC)] = None,
+    ) -> str:
+        """Change an alert's priority level (P1 highest to P5 lowest)."""
         client = client_factory()
         if client is None:
             return NO_TOKEN
@@ -494,7 +569,6 @@ def register(mcp: FastMCP, client_factory: Callable[[], OpsgenieClient | None]) 
         params = {"identifierType": identifier_type}
         try:
             result = await client.put(path, params=params, json_body=body)
-            return json.dumps(result, indent=2, default=str)
+            return dump_json_capped(result)
         except OpsgenieError as e:
-            return f"Error: {e}"
-
+            return e.to_envelope()

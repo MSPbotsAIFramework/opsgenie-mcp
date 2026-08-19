@@ -82,6 +82,29 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     # correctly behind a reverse proxy or docker network.
     mcp = FastMCP(
         name="opsgenie-mcp",
+        instructions=(
+            "Opsgenie (Atlassian) is an alerting and on-call incident-management "
+            "platform: monitoring/observability tools fire alerts into it, and "
+            "Opsgenie tracks each alert's lifecycle (open → acknowledged → closed), "
+            "routes it to responders, and escalates it if nobody acts in time. "
+            "This service exposes the alert-lifecycle operations: "
+            "opsgenie_alert_list_alerts / opsgenie_alert_get_alert / "
+            "opsgenie_alert_count_alerts for querying; opsgenie_alert_create_alert "
+            "for raising a new one; opsgenie_alert_acknowledge_alert, "
+            "opsgenie_alert_close_alert, opsgenie_alert_snooze_alert, "
+            "opsgenie_alert_escalate_alert_to_next, and opsgenie_alert_assign_alert "
+            "for working an alert; opsgenie_alert_add_note_to_alert, "
+            "opsgenie_alert_add_tags_to_alert/opsgenie_alert_remove_tags_from_alert, "
+            "opsgenie_alert_add_responder_to_alert, and "
+            "opsgenie_alert_add_team_to_alert for annotating/routing it; "
+            "opsgenie_alert_update_alert_message/description/priority for edits; "
+            "opsgenie_alert_list_alert_logs/opsgenie_alert_list_alert_notes for "
+            "history; and opsgenie_alert_delete_alert as the one irreversible "
+            "operation. Typical flow: opsgenie_alert_list_alerts (or "
+            "opsgenie_alert_get_alert with a known identifier) to find the alert, "
+            "then act on it by identifier. Alerts can be addressed by id, tinyId, "
+            "or alias — pass the matching identifier_type."
+        ),
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
