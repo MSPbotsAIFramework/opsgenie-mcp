@@ -106,6 +106,8 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             "or alias — pass the matching identifier_type."
         ),
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        stateless_http=True,
+        json_response=True,
     )
 
     client_factory: Callable[[], OpsgenieClient | None] = get_client_from_context
