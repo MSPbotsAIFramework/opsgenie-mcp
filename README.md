@@ -131,12 +131,12 @@ integration convention sends this key as `Authorization: GenieKey <apiKey>`,
 matching Opsgenie's own documented format, and this server forwards it
 exactly that way.
 
-### HEADER 授权参数说明
+### HEADER authentication parameters
 
-| Header | 类型 | 是否必填 | 默认值 | 枚举值 | 字段描述 | Example |
+| Header | Type | Required | Default | Allowed values | Description | Example |
 |---|---|---|---|---|---|---|
-| `X-Opsgenie-Api-Key` | string | 是 | 无 | 无 | Opsgenie 集成 API Key，原样转发为上游 `Authorization: GenieKey <apiKey>` 请求头 | `X-Opsgenie-Api-Key: a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
-| `X-Opsgenie-Base-Url` | string | 否 | `https://api.opsgenie.com` | 无 | Opsgenie API 基础 URL；EU 实例客户需传 `https://api.eu.opsgenie.com` | `X-Opsgenie-Base-Url: https://api.eu.opsgenie.com` |
+| `X-Opsgenie-Api-Key` | string | Yes | None | None | Opsgenie integration API Key, forwarded as-is as the upstream `Authorization: GenieKey <apiKey>` request header | `X-Opsgenie-Api-Key: a1b2c3d4-e5f6-7890-abcd-ef1234567890` |
+| `X-Opsgenie-Base-Url` | string | No | `https://api.opsgenie.com` | None | Opsgenie API base URL; customers on the EU instance must pass `https://api.eu.opsgenie.com` | `X-Opsgenie-Base-Url: https://api.eu.opsgenie.com` |
 
 Missing the required header returns `401`:
 ```json
@@ -150,11 +150,11 @@ Missing the required header returns `401`:
 
 ## Environment Variables
 
-| Variable | 类型 | 是否必填 | 默认值 | 说明 |
+| Variable | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `MCP_HTTP_PORT` | int | 否 | `8080` | HTTP 监听端口 |
-| `MCP_HTTP_HOST` | string | 否 | `0.0.0.0` | HTTP 监听地址 |
-| `OPSGENIE_BASE_URL` | string | 否 | `https://api.opsgenie.com` | 默认 Opsgenie API 基础 URL（可被请求头 `X-Opsgenie-Base-Url` 覆盖） |
+| `MCP_HTTP_PORT` | int | No | `8080` | HTTP listen port |
+| `MCP_HTTP_HOST` | string | No | `0.0.0.0` | HTTP listen address |
+| `OPSGENIE_BASE_URL` | string | No | `https://api.opsgenie.com` | Default Opsgenie API base URL (can be overridden by the `X-Opsgenie-Base-Url` request header) |
 
 ## MCP Endpoint
 
@@ -195,7 +195,7 @@ schema is available in Opsgenie's own API reference (linked below).
 | alert | `opsgenie_alert_update_alert_message` | Update Alert Message. | POST /v2/alerts/:identifier/message | identifier(required), body(required), identifier_type(optional) |
 | alert | `opsgenie_alert_update_alert_priority` | Update Alert Priority. | PUT /v2/alerts/:identifier/priority | identifier(required), body(required), identifier_type(optional) |
 
-## 测试示例
+## Test Example
 
 ```bash
 # Health check
